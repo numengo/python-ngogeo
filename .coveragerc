@@ -1,0 +1,16 @@
+[paths]
+source =
+   src/ngogeo
+   */site-packages/ngogeo
+
+[run]
+branch = true
+source =
+    ngogeo
+    tests
+parallel = true
+
+[report]
+show_missing = true
+precision = 2
+omit = *migrations*
