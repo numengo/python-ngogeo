@@ -22,7 +22,11 @@ from .postals import load_postals_gdf
 import pycountry
 from currencies import Currency
 
+import overpy
+
 from ngogeo import settings as geo_settings
+
+api = overpy.Overpass()
 
 
 def _make_point_to_crs(point, point_crs=None, dest_crs=None):
@@ -79,6 +83,47 @@ def _search_radius(gdf, point, radius=10000, point_crs=None, regex=False, **kwar
     return ret.sort_values(by=['distance'])
 
 
+def _search_elements(bbox, element='node', crs=None, **kwargs):
+    crs = crs or geo_settings.WSG84_CRS
+    attrs = ', '.join([f'"{k}"="{v}"' for k, v in kwargs.items()])
+    result = api.query(f"[out:xml];{element}[{attrs}]({bbox});out;")
+    elements = getattr(result, element + 's')
+    ids = [n.id for n in elements]
+    points = [Point(n.lon, n.lat) for n in elements]
+    tags = [n.tags for n in elements]
+    attributes = [n.attributes for n in elements]
+    df = gpd.GeoDataFrame(dict(ids=ids, tags=tags, attributes=attributes),
+                          geometry=points, crs=geo_settings.WSG84_CRS)
+    return df if df.crs.is_exact_same(crs) else df.to_crs(crs)
+
+
+def _search_elements_radius(point, radius, point_crs=None, element='node', crs=None, **kwargs):
+    wsg84_crs = geo_settings.WSG84_CRS
+    crs = crs or wsg84_crs
+    if isinstance(point, gpd.GeoDataFrame):
+        point_gdf = point
+    else:
+        point_crs = point_crs or wsg84_crs
+        point_gdf = gpd.GeoDataFrame(geometry=[point] if isinstance(point, Point) else [Point(*point)], crs=point_crs)
+    if not point_gdf.crs.is_exact_same(wsg84_crs):
+        point_gdf = point_gdf.to_crs(wsg84_crs)
+    bbox = point_gdf.buffer(radius).envelope.to_crs(geo_settings.WSG84_CRS).bounds
+    bbox = f'{bbox.miny[0]:.3f}, {bbox.minx[0]:.3f}, {bbox.maxy[0]:.3f}, {bbox.maxx[0]:.3f}'
+    return _search_elements(bbox, element=element, crs=crs, **kwargs)
+
+
+def search_nodes_radius(point, radius, point_crs=None, crs=None, **kwargs):
+    return _search_elements_radius(point, radius, point_crs=point_crs, element='node', crs=crs, **kwargs)
+
+
+def search_ways_radius(point, radius, point_crs=None, crs=None, **kwargs):
+    return _search_elements_radius(point, radius, point_crs=point_crs, element='ways', crs=crs, **kwargs)
+
+
+def search_relations_radius(point, radius, point_crs=None, crs=None, **kwargs):
+    return _search_elements_radius(point, radius, point_crs=point_crs, element='relations', crs=crs, **kwargs)
+
+
 class Territory:
     code: str
     name : str
@@ -102,8 +147,10 @@ class Territory:
         self.box = None
         if bound_from_cities and cities is not None:
             cs = gpd.GeoSeries([MultiPoint(self.cities.geometry.to_list())], crs=crs)
-            self.box = cs.envelope[0]
             self.bnd = cs.convex_hull[0]
+            self.box = self.bnd.minimum_rotated_rectangle.buffer(10000, resolution=4)
+            bbox = cs.envelope.to_crs(geo_settings.WSG84_CRS).bounds
+            self.bbox = f'{bbox.miny[0]:.3f}, {bbox.minx[0]:.3f}, {bbox.maxy[0]:.3f}, {bbox.maxx[0]:.3f}'
 
     def __str__(self):
         return f'<{self.__class__.__name__} {self.name}>'
@@ -135,6 +182,18 @@ class Territory:
             response = response.iloc[0]
         return response
 
+    def search_nodes(self, **kwargs):
+        return _search_elements(self.bbox, element='node', crs=self.crs, **kwargs)
+
+    def search_ways(self, **kwargs):
+        return _search_elements(self.bbox, element='ways', crs=self.crs, **kwargs)
+
+    def search_areas(self, **kwargs):
+        return _search_elements(self.bbox, element='areas', crs=self.crs, **kwargs)
+
+    def search_relations(self, **kwargs):
+        return _search_elements(self.bbox, element='relations', crs=self.crs, **kwargs)
+
     def search_geonames_radius(self, point, radius=10000, point_crs=None, regex=False, **kwargs):
         return _search_radius(self.geonames, point, radius=radius, point_crs=point_crs, regex=regex, **kwargs)
 
@@ -157,13 +216,12 @@ class Territory:
 
     def locate(self, point, point_crs=None):
         point = self.make_point_to_crs(point, point_crs)
-        subds = self.subdivisions
         if self.box.intersects(point):
-            ss = [s for s in subds.values() if s.box.intersects(point)]
-            for s in ss:
-                l = s.locate(point, point_crs)
-                if l:
-                    return l
+            for s in self.subdivisions.values():
+                if s.box.intersects(point):
+                    l = s.locate(point)
+                    if l:
+                        return l
             return self
 
 
@@ -196,9 +254,12 @@ class Country(Admin1):
     def __init__(self, name, infos, **kwargs):
         super().__init__(name, bound_from_cities=False, **kwargs)
         self.infos = infos
-        cs = gpd.GeoSeries([self.infos.geometry], crs="EPSG:4326").to_crs(self.crs)
-        self.box = cs.envelope[0]
-        self.bnd = cs.explode().geometry.convex_hull.unary_union
+        cs = gpd.GeoSeries([self.infos.geometry], crs=geo_settings.WSG84_CRS).to_crs(self.crs)
+        ch = cs.explode().geometry.convex_hull
+        self.bnd = ch.unary_union
+        self.box = self.bnd.minimum_rotated_rectangle
+        bbox = cs.envelope.to_crs(geo_settings.WSG84_CRS).bounds
+        self.bbox = f'{bbox.miny[0]:.3f}, {bbox.minx[0]:.3f}, {bbox.maxy[0]:.3f}, {bbox.maxx[0]:.3f}'
         self.languages = [world.languages.get(alpha_2=c.split('-')[0]) for c in
                           infos['Languages'].split(',')]
         cc = infos['CurrencyCode']
@@ -220,16 +281,16 @@ class Continent(Territory):
     code = 'continent'
     countries: OrderedDict
     countries_gdf: gpd.GeoDataFrame
-    crs = 'EPSG:4326'
+    crs = geo_settings.WSG84_CRS
 
     def __init__(self, *args, countries_gdf, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, bound_from_cities=False, **kwargs)
         self.countries = OrderedDict()
         self.countries_gdf = countries_gdf
         if countries_gdf.geometry.any():
             # geometry is defined. we are normally served with a boundary geometry also EPSG:4326
             self.bnd = gpd.GeoSeries(countries_gdf['bnd'])
-            self.box = countries_gdf.geometry.envelope
+            self.box = self.bnd.unary_union.envelope
 
     def contains(self, point, point_crs=None):
         for cc, country in self.countries.items():

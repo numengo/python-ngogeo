@@ -126,6 +126,8 @@ def test_boundaries():
     point_postals = loc.search_postals_radius(point, 3000)
     assert point_cities.name.iloc[0] == 'Riorges'
     assert point_postals.place_name.iloc[0] == 'Riorges'
+    res = loc.search_nodes(amenity='drinking_water')
+    assert len(res)
 
 
 if __name__ == '__main__':

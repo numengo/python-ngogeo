@@ -58,9 +58,7 @@ def load_geonames_gdf(filename, crs=None):
         # extract archive
         with zipfile.ZipFile(gcz, 'r') as zo:
             zo.extractall(str(geonames_folder.joinpath(filename)))
-    df = pd.read_csv(
-        gct, sep="\t", dtype=DATA_FIELDS, names=tuple(DATA_FIELDS), index_col='geonameid'
-    )
+    df = pd.read_csv(gct, sep="\t", dtype=DATA_FIELDS, names=tuple(DATA_FIELDS))
     gdf = gpd.GeoDataFrame(
         df,
         geometry=[Point(lon, lat) for lon, lat in zip(df["longitude"], df["latitude"])], # check the ordering of lon/lat
@@ -109,6 +107,5 @@ def load_countries(with_shapes=True):
             df2 = gpd.read_file(ssf)
             df2['geoNameId'] = df2['geoNameId'].astype(int)
         df = df2.merge(df1, left_on='geoNameId', right_on='geonameid').dropna(subset=['ISO'])
-    df.set_index('ISO', inplace=True)
-    return df
+    return df.set_index('ISO').sort_values('Population', ascending=False)
 

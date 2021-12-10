@@ -75,7 +75,8 @@ install_requires = [
     'pycountry',
     'countryinfo',
     'currencies',
-    'geoip2'
+    'geoip2',
+    'overpy'
 ]
 
 post_install_requires = [i for i in install_requires if ('-' in i or ':' in i or '.' in i)]
