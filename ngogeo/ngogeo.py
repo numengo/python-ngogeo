@@ -5,164 +5,313 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 
 import io
-import urllib.request as request
-import zipfile
 import dpath.util
 import difflib
 from collections import OrderedDict
 from pprint import pprint
+import pandas as pd
+import geopandas as gpd
+import shapely
+import shapely.geometry
+from shapely.geometry import Point, Polygon, MultiPoint
 
-# a lot of data (long, lat, admin regions, population), search by name
-import geonames
-
-# https://pgeocode.readthedocs.io/en/latest/overview.html
-# only for postal code, but very efficient
-import pgeocode
+from .geonames import load_geonames_gdf, load_countries, load_cities, load_timezones, load_currencies, load_languages
+from .postals import load_postals_gdf
 
 # country info and subdivisions
 import pycountry
+from currencies import Currency
+
+from ngogeo import settings as geo_settings
+
+
+def _make_point_to_crs(point, point_crs=None, dest_crs=None):
+    if isinstance(point, gpd.GeoDataFrame):
+        point_gdf = point
+    else:
+        point_gdf = gpd.GeoDataFrame(geometry=[point] if isinstance(point, Point) else [Point(*point)], crs=point_crs)
+    dest_crs = dest_crs or point_gdf.crs
+    if not point_gdf.crs.is_exact_same(dest_crs):
+        point_gdf = point_gdf.to_crs(dest_crs)
+    return point_gdf.geometry[0]
+
+
+def _search_name(df, name, regex=False, **kwargs):
+    """Returns the most likely result as a pandas Series"""
+    # Make a copy of the dataset to preserve the original
+
+    # Filter data by string queries before searching
+    filters = {**kwargs}
+    for key, val in filters.items():
+        df = df[
+            df[key].str.contains(val, case=False, regex=regex, na=False)
+        ]
+
+    # Use difflib to find matches
+    diffs = difflib.get_close_matches(name, df['name'].tolist(), n=1, cutoff=0)
+    matches = df[df['name'] == diffs[0]]
+
+    def certainty(result_name):
+        return difflib.SequenceMatcher(None, result_name, name).ratio()
+
+    matches['certainty'] = matches['name'].apply(certainty)
+    return matches.sort_values(by=['certainty'], ascending=False)
+
+
+def _search_radius(gdf, point, radius=10000, point_crs=None, regex=False, **kwargs):
+    # Filter data by string queries before searching
+    filters = {**kwargs}
+    for key, val in filters.items():
+        gdf = gdf[
+            gdf[key].str.contains(val, case=False, regex=regex, na=False)
+        ]
+    # https://gis.stackexchange.com/questions/349637/given-list-of-points-lat-long-how-to-find-all-points-within-radius-of-a-give
+    if isinstance(point, gpd.GeoDataFrame):
+        point_gdf = point
+    else:
+        point_crs = point_crs or gdf.crs
+        point_gdf = gpd.GeoDataFrame(geometry=[point] if isinstance(point, Point) else [Point(*point)], crs=point_crs)
+    if not point_gdf.crs.is_exact_same(gdf.crs):
+        point_gdf = point_gdf.to_crs(gdf.crs)
+    x = point_gdf.buffer(radius).convex_hull.unary_union
+    ret = gdf[gdf["geometry"].within(x)]
+    ret['distance'] = ret.geometry.distance(point_gdf.geometry[0])
+    return ret.sort_values(by=['distance'])
 
 
 class Territory:
-    _humans_code = {}
-    _subdivisions = {}
-    _pk = None
-    _name = None
-    _postal = None
-    _geocities = None
-    _geonames = None
+    code: str
+    name : str
+    infos : pd.Series
+    cities : gpd.GeoDataFrame
+    postals : gpd.GeoDataFrame
+    geonames : gpd.GeoDataFrame
+    subdivisions: OrderedDict
+    box: shapely.geometry.MultiPoint
+    crs = geo_settings.DEFAULT_CRS
 
-    def __init__(self, pk, name, postal=None, geocities=None, geonames=None):
-        self._pk = pk
-        self._name = name
-        self._postal = postal
-        self._geocities = geocities
-        self._geonames = geonames
-        self._humans_code[name] = pk
-        self._subdivisions = OrderedDict()
+    def __init__(self, name, cities=None, postals=None, geonames=None, crs=None, parent=None, bound_from_cities=True):
+        from shapely.geometry import Polygon
+        self.name = name
+        self.crs = crs = crs or self.crs
+        self.cities = cities if cities is None or cities.crs.is_exact_same(crs) else cities.to_crs(crs)
+        self.postals = postals if postals is None or postals.crs.is_exact_same(crs) else postals.to_crs(crs)
+        self.geonames = geonames if geonames is None or geonames.crs.is_exact_same(crs) else geonames.to_crs(crs)
+        self.subdivisions = OrderedDict()
+        self.parent = parent
+        self.box = None
+        if bound_from_cities and cities is not None:
+            cs = gpd.GeoSeries([MultiPoint(self.cities.geometry.to_list())], crs=crs)
+            self.box = cs.envelope[0]
+            self.bnd = cs.convex_hull[0]
 
     def __str__(self):
-        return f'{self.__class__.__name__}({self._name} [{self._pk}])'
+        return f'<{self.__class__.__name__} {self.name}>'
 
-    def by_name(self, name):
-        if name in self._humans_code:
-            pk = self._humans_code[name]
-            return self._subdivisions[pk]
-        return self.search_name(name)
+    def search_geonames_name(self, name, regex=False, **kwargs):
+        return _search_name(self.geonames, name, regex=regex, **kwargs)
 
-    def by_code(self, pk):
-        return self._subdivisions[pk]
+    def search_city_name(self, name, regex=False, **kwargs):
+        return _search_name(self.cities, name, regex=regex, **kwargs)
 
-    def search_name(self, name, converter=None, regex=False, **kwargs):
-        """Returns the most likely result as a pandas Series"""
-        # Make a copy of the dataset to preserve the original
-        data = self._geonames.data
+    def search_postal_code(self, codes, unique=False):
+        if isinstance(codes, int):
+            codes = str(codes)
 
-        # Filter data by string queries before searching
-        filters = {**kwargs}
-        for key, val in filters.items():
-            data = data[
-                data[key].str.contains(val, case=False, regex=regex, na=False)
-            ]
+        if isinstance(codes, str):
+            codes = [codes]
+            single_entry = True
+        else:
+            single_entry = False
 
-        # Use difflib to find matches
-        diffs = difflib.get_close_matches(name, data['name'].tolist(), n=1, cutoff=0)
-        matches = data[data['name'] == diffs[0]]
+        if not isinstance(codes, pd.DataFrame):
+            codes = pd.DataFrame(codes, columns=["postal_code"])
+        # normalize
+        codes["postal_code"] = codes.postal_code.str.upper()
+        response = pd.merge(
+            codes, self.postals, on="postal_code", how="left"
+        )
+        if unique and single_entry:
+            response = response.iloc[0]
+        return response
 
-        for index, result in matches.iterrows():
-            certainty = difflib.SequenceMatcher(None, result['name'], name).ratio()
+    def search_geonames_radius(self, point, radius=10000, point_crs=None, regex=False, **kwargs):
+        return _search_radius(self.geonames, point, radius=radius, point_crs=point_crs, regex=regex, **kwargs)
 
-            # Convert result if converter specified
-            if converter:
-                result = converter(result)
+    def search_cities_radius(self, point, radius=10000, point_crs=None, regex=False, **kwargs):
+        return _search_radius(self.cities, point, radius=radius, point_crs=point_crs, regex=regex, **kwargs)
 
-            result['certainty'] = certainty
-            yield result
+    def search_postals_radius(self, point, radius=10000, point_crs=None, regex=False, **kwargs):
+        return _search_radius(self.postals, point, radius=radius, point_crs=point_crs, regex=regex, **kwargs)
 
-    def search_postal_code(self, codes):
-        return self._postal.query_postal_code(codes)
+    def make_point_to_crs(self, point, point_crs=None, dest_crs=None):
+        point_crs = point_crs or self.crs
+        dest_crs = dest_crs or self.crs
+        return _make_point_to_crs(point, point_crs=point_crs, dest_crs=dest_crs)
 
+    def contains(self, point, point_crs=None, only_box=False):
+        point = self.make_point_to_crs(point, point_crs)
+        if self.box.intersects(point):
+            return True if only_box else self.bnd.intersects(point)
+        return False
 
-class County(Territory):
-
-    def __init__(self, pk, name, postal=None, geocities=None, geonames=None):
-        Territory.__init__(self, pk, name, postal=postal, geocities=geocities, geonames=geonames)
-        self._communities = self._subdivisions = OrderedDict()
-
-
-Arrondissement = County
-
-
-class Region(Territory):
-
-    def __init__(self, pk, name, postal=None, geocities=None, geonames=None):
-        Territory.__init__(self, pk, name, postal=postal, geocities=geocities, geonames=geonames)
-        self._counties = self._subdivisions = OrderedDict()
-
-        humans_code = self._humans_code
-        admin2codes = geocities['admin2code'].dropna().unique()
-        for cc in admin2codes:
-            geocities_admin2 = geocities.loc[geocities['admin2code'] == cc]
-            postal_admin2 = postal.loc[postal['county_code'] == cc]
-
-            admin2_aliases = postal_admin2['county_name'].unique()
-            for a in admin2_aliases:
-                humans_code[a] = cc
-            kk = admin2_aliases[0]
-
-            self._counties[cc] = county = County(cc, kk, postal=postal_admin2, geocities=geocities_admin2, geonames=geonames)
-
-            admin3codes = geocities_admin2['admin3code'].dropna().unique()
-            for ccc in admin3codes:
-                geocities_admin3 = geocities_admin2.loc[geocities_admin2['admin3code'] == ccc]
-                postal_admin3 = postal_admin2.loc[postal_admin2['community_code'] == ccc]
-
-                admin3_aliases = postal_admin3['community_name'].unique()
-                for a in admin3_aliases:
-                    humans_code[a] = ccc
-                kkk = admin3_aliases[0]
-
-                county._subdivisions[ccc] = Territory(ccc, kkk, postal=postal_admin3, geocities=geocities_admin3, geonames=geonames)
+    def locate(self, point, point_crs=None):
+        point = self.make_point_to_crs(point, point_crs)
+        subds = self.subdivisions
+        if self.box.intersects(point):
+            ss = [s for s in subds.values() if s.box.intersects(point)]
+            for s in ss:
+                l = s.locate(point, point_crs)
+                if l:
+                    return l
+            return self
 
 
-class Country(Territory):
+class Admin3(Territory):
+    code = 'admin3'
 
-    def __init__(self, country_code='fr'):
+
+class Admin2(Admin3):
+    code = 'admin2'
+    admin3: OrderedDict
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.admin3 = OrderedDict()
+
+
+class Admin1(Admin2):
+    code = 'admin1'
+    admin2: OrderedDict
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.admin2 = OrderedDict()
+
+
+class Country(Admin1):
+    code = 'countrycode'
+    admin1: OrderedDict
+
+    def __init__(self, name, infos, **kwargs):
+        super().__init__(name, bound_from_cities=False, **kwargs)
+        self.infos = infos
+        cs = gpd.GeoSeries([self.infos.geometry], crs="EPSG:4326").to_crs(self.crs)
+        self.box = cs.envelope[0]
+        self.bnd = cs.explode().geometry.convex_hull.unary_union
+        self.languages = [world.languages.get(alpha_2=c.split('-')[0]) for c in
+                          infos['Languages'].split(',')]
+        cc = infos['CurrencyCode']
+        self.currency = world.currencies.get(alpha_3=cc)
+        self.currency_fmt = Currency(cc)
+        self.admin1 = OrderedDict()
+        if self.cities is not None:
+            for idx, row in self.cities.iterrows():
+                if row['featurecode'] == 'PPLC':
+                    self.capital = row
+                    break
+
+    def contains(self, point, point_crs=None):
+        point = self.make_point_to_crs(point, point_crs)
+        return self.bnd.contains(point) if self.box.contains(point) else False
+
+
+class Continent(Territory):
+    code = 'continent'
+    countries: OrderedDict
+    countries_gdf: gpd.GeoDataFrame
+    crs = 'EPSG:4326'
+
+    def __init__(self, *args, countries_gdf, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.countries = OrderedDict()
+        self.countries_gdf = countries_gdf
+        if countries_gdf.geometry.any():
+            # geometry is defined. we are normally served with a boundary geometry also EPSG:4326
+            self.bnd = gpd.GeoSeries(countries_gdf['bnd'])
+            self.box = countries_gdf.geometry.envelope
+
+    def contains(self, point, point_crs=None):
+        for cc, country in self.countries.items():
+            if country.contains(point, point_crs):
+                return True
+        # box and boundaries come from countries and are in EPSG:4326
+        point = self.make_point_to_crs(point, point_crs)
+        return self.bnd.contains(point).any()
+
+    def locate(self, point, point_crs=None):
+        for cc, country in self.countries.items():
+            if country.contains(point, point_crs):
+                return country.locate(point, point_crs)
+        point = self.make_point_to_crs(point, point_crs)
+        for cc, bnd in self.bnd.iteritems():
+            if bnd.contains(point):
+                return cc
+
+
+class World(Continent):
+    code = 'world'
+    continents: OrderedDict
+
+    def __init__(self, city_file='cities5000', with_shapes=True, crs=None, **kwargs):
+        import numpy as np
+        cities = load_cities(city_file, crs=crs)
+        countries_gdf = load_countries(with_shapes=with_shapes)
+        if with_shapes:
+            countries_bnd = countries_gdf.geometry.explode().convex_hull
+            countries_gdf['bnd'] = gpd.GeoDataFrame(geometry=countries_bnd).dissolve('ISO')
+        super().__init__('World', countries_gdf=countries_gdf, cities=cities, crs=crs, **kwargs)
+        self.continents = continents = OrderedDict()
+        for cc, countries_continent in countries_gdf.groupby('Continent'):
+            cities_continent = cities[cities['countrycode'].isin(countries_continent.index.to_list())]
+            continents[cc] = Continent(cc, countries_gdf=countries_continent, cities=cities_continent)
+        self.languages = pycountry.languages # pycountry languages better than iso geonames
+        self.currencies = load_currencies()
+        self.tzs = load_timezones()
+
+    def load_country(self, country_code, with_postals=True, with_geonames=False):
         ucc = country_code.upper()
-        # load pycountry https://github.com/flyingcircusio/pycountry#countries-iso-3166
-        self._pyctry = ctry = pycountry.countries.get(alpha_2=ucc)
-        # country postal informations
-        nomi = pgeocode.Nominatim(country_code)
-        postal = nomi._data_frame
-        # all country information
-        gn = geonames.GeoNames(open(f'/Users/cedric/Downloads/{ucc}/{ucc}.txt', 'r'))
-        geocities = gn.data.loc[gn.data['featureclass']=='P']
-        geocities = geocities.sort_values('population', ascending=False)
+        crs = self.crs
+        world_countries_df = self.countries_gdf
+        world_countries = self.countries
+        world_continents = self.continents
+        world_cities = self.cities
+        country = world_countries.get(ucc)
+        if country is None:
+            country_infos = world_countries_df.loc[ucc]
+            continent_code = country_infos['Continent']
+            continent = world_continents[continent_code]
+            country_cities = world_cities[world_cities['countrycode'] == ucc]
+            country_postals = load_postals_gdf(ucc, crs=crs) if with_postals else None
+            country_geonames = load_geonames_gdf(ucc, crs=crs) if with_geonames else None
+            country = Country(country_infos['Country'], infos=country_infos, parent=continent,
+                               cities=country_cities, postals=country_postals, geonames=country_geonames)
+            continent.subdivisions[ucc] = continent.countries[ucc] = world_countries[ucc] = country
+            by_admin1 = country_cities.groupby('admin1code')
+            for a1, admin1_cities in by_admin1:
+                admin1_geonames = country_geonames[country_geonames['admin1code'] == a1] if with_geonames else None
+                admin1_postals = country_postals[country_postals['state_code'] == float(a1)] if with_postals else None
+                admin1_aliases = admin1_postals['state_name'].unique() if with_postals else [a1]
+                ca1 = Admin1(admin1_aliases[0], parent=country,
+                             cities=admin1_cities, postals=admin1_postals, geonames=admin1_geonames)
+                country.subdivisions[a1] = country.admin1[a1] = ca1
+                by_admin2 = admin1_cities.groupby('admin2code')
+                for a2, admin2_cities in by_admin2:
+                    admin2_geonames = admin1_geonames[admin1_geonames['admin2code'] == a2] if with_geonames else None
+                    admin2_postals = admin1_postals[admin1_postals['county_code'] == a2] if with_postals else None
+                    admin2_aliases = admin2_postals['county_name'].unique() if with_postals else [a2]
+                    ca2 = Admin2(admin2_aliases[0], parent=ca1,
+                                 cities=admin2_cities, postals=admin2_postals, geonames=admin2_geonames)
+                    ca1.subdivisions[a2] = ca1.admin2[a2] = country.admin2[a2] = ca2
+                    by_admin3 = admin2_cities.groupby('admin3code')
+                    for a3, admin3_cities in by_admin3:
+                        admin3_geonames = admin2_geonames[admin2_geonames['admin3code'] == a3] if with_geonames else None
+                        admin3_postals = admin2_postals[admin2_postals['community_code'] == a3] if with_postals else None
+                        admin3_aliases = admin3_postals['community_name'].unique() if with_postals else [a3]
+                        ca3 = Admin3(admin3_aliases[0], parent=ca2,
+                                     cities=admin3_cities, postals=admin3_postals, geonames=admin3_geonames)
+                        ca2.subdivisions[a3] = ca2.admin3[a3] = ca1.admin3[a3] = country.admin3[a3] = ca3
+        return country
 
-        Territory.__init__(self, ucc, ctry.name, postal=postal, geocities=geocities, geonames=geonames)
-        self._regions = self._subdivisions = OrderedDict()
-        #self._counties = counties = OrderedDict()
-        humans_code = self._humans_code
 
-        # http://www.geonames.org/export/codes.html
-        # P: city, village, ...
-        admin1codes = geocities['admin1code'].dropna().unique()
-        for c in admin1codes:
-            #subdivisions[c] = OrderedDict()
-            geocities_admin1 = geocities.loc[geocities['admin1code'] == c]
-            postal_admin1 = postal.loc[postal['state_code'] == float(c)]
-
-            admin1_aliases = postal_admin1['state_name'].unique()
-            for a in admin1_aliases:
-                humans_code[a] = c
-            k = admin1_aliases[0]
-
-            self._regions[c] = Region(c, k, postal=postal_admin1, geocities=geocities_admin1, geonames=gn)
-
-
-world = {}
-
-
-def load_country(country_code):
-    world[country_code] = c = Country(country_code)
-    return c
+world = World()

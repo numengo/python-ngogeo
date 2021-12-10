@@ -70,10 +70,12 @@ install_requires = [
     'future',
     'python-gettext',
     'click',
-    'difflib',
     'pgeocode',
-    'geonames',
-    'pycountry', 
+    'geonames-lib',
+    'pycountry',
+    'countryinfo',
+    'currencies',
+    'geoip2'
 ]
 
 post_install_requires = [i for i in install_requires if ('-' in i or ':' in i or '.' in i)]
