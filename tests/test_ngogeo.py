@@ -7,12 +7,12 @@ from click.testing import CliRunner
 from ngogeo.cli import cli
 
 # PROTECTED REGION ID(ngogeo.tests.test_ngogeo) ENABLED START
-from ngogeo import ngogeo
+from ngogeo import territories
 
 
 def test_ip_utils_country():
-    from ngogeo.ip_utils import ip_country
-    country = ip_country.country('92.184.108.14')
+    from ngogeo.ip_utils import IpUtilsCountry
+    country = IpUtilsCountry().country('92.184.108.14')
     assert country
 
 
@@ -46,7 +46,7 @@ def test_ngogeo():
     import json
     from io import StringIO
     tw0 = time.time()
-    world = ngogeo.World()
+    world = territories.get_world()
     tw1 = time.time()
     dtw = tw1 - tw0
     print('load World', dtw)
@@ -88,7 +88,7 @@ def test_ngogeo():
 def test_plot():
     import geopandas as gpd
     import matplotlib.pyplot as plt
-    world = ngogeo.world
+    world = territories.get_world()
     france = world.load_country('FR', with_geonames=False)
     g = gpd.GeoDataFrame(geometry=[france.infos.geometry], crs="EPSG:4326")
     g.plot()
@@ -100,43 +100,91 @@ def test_plot():
 
 
 def test_boundaries():
-    world = ngogeo.world
+    world = territories.get_world()
+    # ip tests
+    assert world.locate_ip_country('92.184.108.14') is None
+    world.with_ip_city = True
+    ip_country = world.locate_ip_country('92.184.108.14')
+    ip_country.with_postals = True
+    ip_country.with_geonames = True
+    ip_city = world.locate_ip_city('92.184.108.14')
+    postal = ip_city.postalInfo
+    a3 = ip_city.admin3
+    ip_city.timezone_details
     # before loading france, locate only according to world shapes
     point = world.make_point_to_crs((4.04255, 46.04378), point_crs='EPSG:4326')
-    assert world.locate(point) == 'FR'
+    loc = ip_city.location
+    d = ip_city.distance_km(point)
+    assert world.locate_country(point) == 'FR'
+    france = world.get_country('FR')
+    france.with_postals = True
+    france.bound_from_cities = True
+    france.with_geonames = True
+    #gg0 = len(france.geonames_gdf)
+    #gg1 = len(france.admin1[0].geonames_gdf.subset)
+    #gg2 = len(france.admin1[0].admin2[0].geonames_gdf.subset)
+    #gg3 = len(france.admin1[0].admin2[0].admin3[0].geonames_gdf.subset)
+    #cg0 = len(france.cities_gdf.subset)
+    #cg1 = len(france.admin1[0].cities_gdf.subset)
+    #cg2 = len(france.admin1[0].admin2[0].cities_gdf.subset)
+    #cg3 = len(france.admin1[0].admin2[0].admin3[0].cities_gdf.subset)
+    #admin1 = france.admin1
+    admin2 = france.admin2
+    #admin3 = france.admin3
+    #a1n = admin1[0].name
+    #a2n = admin2[0].name
+    #a3n = admin3[0].name
     # check if point located in france is in europe and not in africa
-    assert world.continents['EU'].contains(point)
-    assert world.continents['AF'].contains(point) is not True
+    assert world.continents.get(continent_code='EU').contains(point)
+    assert world.continents.get(continent_code='AF').contains(point) is not True
     # load country
-    france = world.load_country('FR', with_geonames=False)
+    #france = world.load_country('FR', with_geonames=False)
     # project point in country crs
-    point = world.make_point_to_crs(point, point_crs='EPSG:4326', dest_crs=france.crs)
+    point = world.make_point_to_crs(point, point_crs='EPSG:4326')
     assert france.contains(point)
     # find administrative zone
     loc = france.locate(point)
     # check that point is found in Loire department and not in Haute Savoie
     # (boundaries of subdivisions defined by city points of department)
-    h_savoie = france.admin2['74']
+    h_savoie = france.admin2.get(admin_code='74')
     assert not h_savoie.contains(point)
-    loire = france.admin2['42']
+    loire = france.admin2.get(admin_code='42')
     assert loire.contains(point)
     assert loc.parent == loire
     # search for cities and postal codes 3km around point in administrative zone
-    point_cities = loc.search_cities_radius(point, 3000)
-    point_postals = loc.search_postals_radius(point, 3000)
+    point_cities = loc.search_cities_around(point, 3000)
+    point_postals = loc.search_postals_around(point, 3000)
     assert point_cities.name.iloc[0] == 'Riorges'
     assert point_postals.place_name.iloc[0] == 'Riorges'
-    res = loc.search_nodes(amenity='drinking_water')
+    res = loc.search_nodes_around(amenity='drinking_water')
     assert len(res)
+    es = ip_city.search_nodes_around(amenity='drinking_water')
+
+    # find and load spain
+    spain = world.find_by_name('spain')
+    spain.with_postals = True
+    spain.postals_gdf
+    assert len(spain.postals_gdf)
+
+
+def test_perf():
+    world = territories.get_world()
+    print('======= start loading =======')
+    spain = world.find_by_name('spain')
+    portugal = world.find_by_name('portugal')
+    germany = world.find_by_name('germany')
+    print('======= end loading =======')
+    assert germany
 
 
 if __name__ == '__main__':
+    test_ip_utils_country()
+    test_ip_utils_city()
     # to run test file standalone
     test_boundaries()
+    #test_perf()
     #test_plot()
     #test_ngogeo()
     #test_geoplot()
-    #test_ip_utils_country()
-    #test_ip_utils_city()
 
 # PROTECTED REGION END

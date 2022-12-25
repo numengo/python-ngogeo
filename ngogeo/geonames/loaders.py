@@ -10,9 +10,13 @@ import pandas as pd
 import geopandas as gpd
 import shapely
 from shapely.geometry import Point
+from shapely.errors import ShapelyDeprecationWarning
+import warnings
+warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 from ngoschema.loaders import static_module_loader
 from ngogeo import settings as geo_settings
+
 
 # get geonames local folder
 geonames_folder = static_module_loader.subfolder('ngogeo').joinpath(geo_settings.GEONAMES_STATIC_FOLDER)
@@ -36,7 +40,7 @@ DATA_FIELDS = {
     'admin2code': str,
     'admin3code': str,
     'admin4code': str,
-    'population': float,
+    'population': int,
     'elevation': float,
     'dem': float,  # dem (digital elevation model)
     'timezone': str,
@@ -67,11 +71,6 @@ def load_geonames_gdf(filename, crs=None):
     return gdf if not crs or gdf.crs.is_exact_same(crs) else gdf.to_crs(crs)
 
 
-def load_currencies():
-    from pycountry import currencies
-    return currencies
-
-
 def load_languages():
     lg = geonames_folder.joinpath('iso-languagecodes.txt')
     assert lg.exists()
@@ -81,12 +80,10 @@ def load_languages():
 
 
 def load_timezones():
-    import pytz
     tz = geonames_folder.joinpath('timeZones.txt')
     with tz.open() as tzf:
         df = pd.read_csv(tzf, sep="\t")
     df.set_index('CountryCode', inplace=True)
-    df['tz'] = df['TimeZoneId'].apply(pytz.timezone)
     return df
 
 
@@ -99,13 +96,17 @@ def load_countries(with_shapes=True):
     ci = geonames_folder.joinpath('countryInfo.txt')
     assert ci.exists()
     with ci.open() as cif:
-        names = ['ISO', 'ISO3', 'ISO-Numeric', 'fips', 'Country', 'Capital', 'Area(in sq km)', 'Population', 'Continent', 'tld', 'CurrencyCode', 'CurrencyName', 'Phone', 'Postal Code Format', 'Postal Code Regex', 'Languages', 'geonameid', 'neighbours', 'EquivalentFipsCode']
-        df = df1 = pd.read_csv(cif, sep="\t", skiprows=50, names=names, dtype={'Area(in sq km)': float, 'Population': pd.Int64Dtype(), 'geonameid': pd.Int64Dtype()})
+        names = ['ISO', 'ISO3', 'ISO-Numeric', 'fips', 'Country', 'Capital', 'Area(in sq km)', 'Population', 'Continent', 'tld', 'CurrencyCode', 'CurrencyName', 'Phone', 'PostalCodeFormat', 'PostalCodeRegex', 'Languages', 'geonameid', 'neighbours', 'EquivalentFipsCode']
+        df = df1 = pd.read_csv(cif, sep="\t", skiprows=50, names=names, dtype={
+            'ISO-Numeric': str, 'Area(in sq km)': float,
+            'Population': pd.Int64Dtype(), 'geonameid': pd.Int64Dtype()
+        })
     if with_shapes:
         ss = geonames_folder.joinpath('shapes_simplified_low', 'shapes_simplified_low.json')
         with open(ss) as ssf:
             df2 = gpd.read_file(ssf)
             df2['geoNameId'] = df2['geoNameId'].astype(int)
         df = df2.merge(df1, left_on='geoNameId', right_on='geonameid').dropna(subset=['ISO'])
+        df.pop('geoNameId')
     return df.set_index('ISO').sort_values('Population', ascending=False)
 
