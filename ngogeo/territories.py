@@ -90,11 +90,11 @@ class Territory(with_metaclass(SchemaMetaclass)):
 
     def locate(self, point, point_crs=None):
         point = self.make_point_to_crs(point, point_crs, dest_crs=self.crs)
-        if self.box.intersects(point):
+        if self.box is not None and self.box.intersects(point):
             if 'subdivisions' in self._propertiesAllowed:
                 for s in self.subdivisions:
                     if s.box is not None and s.box.intersects(point):
-                        l = s.locate(point)
+                        l = s.locate(point, point_crs=self.crs)
                         if l:
                             return l
             return self
@@ -205,6 +205,15 @@ class GeonamesTerritory(with_metaclass(SchemaMetaclass)):
             gdf = _search_name(geonames_gdf, name, regex=regex, **kwargs)
             return gdf
 
+    def find_geonameid(self, gid):
+        geonames_gdf = self.geonames_gdf
+        geonames_gdf = geonames_gdf.subset if isinstance(geonames_gdf, GeoDataframeSubset) else geonames_gdf
+        if geonames_gdf is not None:
+            gdf = geonames_gdf[geonames_gdf['geonameid'] == gid]
+            if len(gdf):
+                assert len(gdf) == 1
+                return Geoname(geoname=gdf.iloc[0], parent=self)
+
 
 class Admin3(with_metaclass(SchemaMetaclass)):
     _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/Admin3"
@@ -228,7 +237,14 @@ class Admin3(with_metaclass(SchemaMetaclass)):
                 if len(a3s):
                     a3_community_code = a3s.index[0]
                     a3_postals = a2_postals[a2_postals['community_code'] == a3_community_code]
+            assert len(a3_postals['community_code'].unique()) == 1
+            community_code = a3_postals['community_code'].iloc[0]
+            self._set_dataValidated('community_code', community_code)
+            self._set_dataValidated('postals_ids', [community_code])
         return a3_postals
+
+    def get_postals_ids(self):
+        return [self._dataValidated.get('community_code')]
 
     def get_name(self):
         admin3_postals = self.postals_gdf
@@ -247,7 +263,7 @@ class Admin3(with_metaclass(SchemaMetaclass)):
     def locate_city(self, name=None, postal_code=None):
         postal = self.search_postal_code(postal_code, unique=True) if postal_code else None
         geo_kwargs = OrderedDict()
-        if len(postal):
+        if postal is not None and len(postal):
             if name is None:
                 name = postal.place_name
                 # only set admin3, others will filter down to the same
@@ -283,6 +299,10 @@ class Admin2(with_metaclass(SchemaMetaclass)):
                 if len(a2s):
                     a2_county_code = a2s.index[0]
                     a2_postals = a1_postals[a1_postals['county_code'] == a2_county_code]
+            assert len(a2_postals['county_code'].unique()) == 1
+            county_code = a2_postals['county_code'].iloc[0]
+            self._set_dataValidated('county_code', county_code)
+            self._set_dataValidated('postals_ids', [county_code])
             return a2_postals
 
     def get_name(self):
@@ -309,12 +329,14 @@ class Admin1(with_metaclass(SchemaMetaclass)):
     geonames_subkeys = 'admin1code'
 
     def get_postals_gdf(self):
-        cy_postals = self.country.postals_gdf
+        cy_postals = self.parent.postals_gdf
         if cy_postals is not None:
             a1_cities = self.cities_gdf.subset
             a1_cities_postals = a1_cities.merge(cy_postals, left_on='name', right_on='place_name', copy=True)
             a1_postal = a1_cities_postals.state_code.value_counts().index[0]
             a1_postals = cy_postals[cy_postals['state_code'] == a1_postal]
+            self._set_dataValidated('state_code', a1_postal)
+            self._set_dataValidated('postals_ids', [a1_postal])
             return a1_postals
 
     def get_name(self):
@@ -375,7 +397,7 @@ class Country(with_metaclass(SchemaMetaclass)):
         if cities is not None:
             for idx, row in cities.iterrows():
                 if row['featurecode'] == 'PPLC':
-                    return row
+                    return City(geoname=row, parent=self)
 
     def get_cs(self):
         infos = self.infos
@@ -441,21 +463,21 @@ class Continent(with_metaclass(SchemaMetaclass)):
     _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/Continent"
 
     def get_cities_gdf(self):
-        countries_gdf = self.countries_gdfs.subset
+        countries_gdf = self.countries_gdf.subset
         world_cities = self.world.cities_gdf
         country_codes = countries_gdf.index.to_list()
         return world_cities[world_cities['countrycode'].isin(country_codes)]
 
-    def get_countries_gdfs(self):
+    def get_countries_gdf(self):
         return self._create_parent_gdf_subset('countries_gdf', subkeys='Continent', ids=[self.continent_code])
 
     def get_countries(self):
-        countries_gdf = self.countries_gdfs.subset
+        countries_gdf = self.countries_gdf.subset
         return [Country(country_code=ucc, infos=countries_gdf.loc[ucc], parent=self)
                 for ucc in countries_gdf.index]
 
     def get_bnd(self):
-        countries_gdf = self.countries_gdfs.subset
+        countries_gdf = self.countries_gdf.subset
         if hasattr(countries_gdf, 'geometry') and countries_gdf.geometry.any():
             return gpd.GeoSeries(countries_gdf['bnd'])
 
@@ -481,10 +503,10 @@ class Continent(with_metaclass(SchemaMetaclass)):
             p = self.make_point_to_crs(point, point_crs, dest_crs=WSG84_CRS)
             for cc, bnd in self.bnd.iteritems():
                 if bnd.contains(p):
-                    return cc
+                    return self.countries.get(country_code=cc)
         for country in self.countries:
             if country.contains(point, point_crs):
-                return country.admin_code
+                return country
 
 
 class World(with_metaclass(SchemaMetaclass)):
@@ -580,6 +602,65 @@ class World(with_metaclass(SchemaMetaclass)):
         return self.get_country(country_code)
 
 
+class Location(with_metaclass(SchemaMetaclass)):
+    _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/Location"
+
+    def get_location(self):
+        long, lat = self.longitude, self.latitude
+        if long and lat:
+            return _make_point_to_crs((long, lat), point_crs=WSG84_CRS, dest_crs=self.crs)
+
+    def get_bbox(self):
+        buff = self.gdf.buffer(self.search_radius or DEFAULT_RADIUS_SEARCH).to_crs(geo_settings.WSG84_CRS)
+        bbox = buff.bounds.iloc[0]
+        return f'{bbox.miny:.3f}, {bbox.minx:.3f}, {bbox.maxy:.3f}, {bbox.maxx:.3f}'
+
+    def get_gdf(self, *series):
+        series = [s for s in series if s is not None]
+        if len(series):
+            s0 = series[0].copy()
+            for s in series[1:]:
+                s0.update(s)
+            series = [s0]
+        gdf = gpd.GeoDataFrame(series, geometry=[self.location], crs=self.crs)
+        return gdf
+
+
+class Postal(with_metaclass(SchemaMetaclass)):
+    _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/Postal"
+    _lazyLoading = True
+
+    def __init__(self, *args, postal=None, **kwargs):
+        if postal is not None:
+            kwargs.update(postal.dropna().to_dict())
+            kwargs['postal'] = postal
+        super().__init__(*args, **kwargs)
+
+    def get_gdf(self):
+        return Location.get_gdf(self, self.postal)
+
+    def set_postal(self, postal):
+        for k, v in postal.dropna().to_dict().items():
+            #self[k] = v
+            self._set_dataValidated(k, v)
+
+    def get_country(self):
+        cur = self.parent
+        while cur is not None:
+            if isinstance(cur, Country):
+                return cur
+            cur = cur.parent
+
+    def get_admin1(self):
+        return self.country.admin1.get(state_code=self.state_code)
+
+    def get_admin2(self):
+        return self.admin1.admin2.get(county_code=self.county_code)
+
+    def get_admin3(self):
+        return self.admin2.admin3.get(community_code=self.community_code)
+
+
 class Geoname(with_metaclass(SchemaMetaclass)):
     _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/Geoname"
     _lazyLoading = True
@@ -593,6 +674,7 @@ class Geoname(with_metaclass(SchemaMetaclass)):
     def set_geoname(self, geoname):
         for k, v in geoname.dropna().to_dict().items():
             self._set_dataValidated(k, v)
+            #self[k] = v
 
     def get_country(self):
         cur = self.parent
@@ -643,21 +725,12 @@ class Geoname(with_metaclass(SchemaMetaclass)):
         admin = self[f'admin{admin_level}']
         return admin.search_geonames_around(self.location, point_crs=self.crs, **kwargs)
 
-    def get_bbox(self):
-        buff = self.gdf.buffer(self.radius or DEFAULT_RADIUS_SEARCH).to_crs(geo_settings.WSG84_CRS)
-        bbox = buff.bounds.iloc[0]
-        return f'{bbox.miny:.3f}, {bbox.minx:.3f}, {bbox.maxy:.3f}, {bbox.maxx:.3f}'
-
     def get_timezone_details(self):
         tz = self.timezone
         return pytz.timezone(tz) if tz else None
 
-    def get_location(self):
-        return _make_point_to_crs((self.longitude, self.latitude), point_crs=WSG84_CRS, dest_crs=self.crs)
-
     def get_gdf(self):
-        gdf = gpd.GeoDataFrame([self.geoname], geometry=[self.location], crs=self.crs)
-        return gdf
+        return Location.get_gdf(self, self.geoname)
 
     def distance_km(self, other):
         from geopandas import GeoDataFrame
@@ -680,18 +753,19 @@ class Geoname(with_metaclass(SchemaMetaclass)):
 class City(with_metaclass(SchemaMetaclass)):
     _id = r"https://numengo.org/ngogeo#/$defs/territories/$defs/City"
 
-    def get_postalInfo(self):
+    def get_gdf(self):
+        return Location.get_gdf(self, self.geoname, self.postal)
+
+    def get_postal(self):
         postals = self.admin3.postals_gdf
         postals = postals[postals['place_name'] == self.name]
         if len(postals):
-            postalInfo = postals.iloc[0]
-            for k, v in postalInfo.dropna().to_dict().items():
-                self._set_dataValidated(k, v)
-            return postalInfo
+            postal = postals.iloc[0]
+            return postal
 
-    def get_gdf(self):
-        gdf = gpd.GeoDataFrame([self.geoname], geometry=[self.location], crs=self.crs)
-        return gdf
+    def set_postal(self, postal):
+        for k, v in postal.dropna().to_dict().items():
+            self._set_dataValidated(k, v)
 
 
 _world_dbs = {}

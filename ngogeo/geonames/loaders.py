@@ -63,6 +63,7 @@ def load_geonames_gdf(filename, crs=None):
         with zipfile.ZipFile(gcz, 'r') as zo:
             zo.extractall(str(geonames_folder.joinpath(filename)))
     df = pd.read_csv(gct, sep="\t", dtype=DATA_FIELDS, names=tuple(DATA_FIELDS))
+    df['modificationdate'] = pd.to_datetime(df['modificationdate'])
     gdf = gpd.GeoDataFrame(
         df,
         geometry=[Point(lon, lat) for lon, lat in zip(df["longitude"], df["latitude"])], # check the ordering of lon/lat

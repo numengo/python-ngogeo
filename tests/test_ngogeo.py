@@ -108,14 +108,17 @@ def test_boundaries():
     ip_country.with_postals = True
     ip_country.with_geonames = True
     ip_city = world.locate_ip_city('92.184.108.14')
-    postal = ip_city.postalInfo
-    a3 = ip_city.admin3
+    postal = ip_city.postal
+    from ngogeo.territories import Postal
+    p = Postal(postal=postal, parent=ip_country)
+    p.admin3
+    ip_city_admin = ip_city.admin3
     ip_city.timezone_details
     # before loading france, locate only according to world shapes
     point = world.make_point_to_crs((4.04255, 46.04378), point_crs='EPSG:4326')
     loc = ip_city.location
     d = ip_city.distance_km(point)
-    assert world.locate_country(point) == 'FR'
+    assert world.locate_country(point).country_code == 'FR'
     france = world.get_country('FR')
     france.with_postals = True
     france.bound_from_cities = True

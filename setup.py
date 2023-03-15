@@ -70,6 +70,7 @@ install_requires = [
     'future',
     'python-gettext',
     'click',
+    'geopandas',
     'pgeocode',
     'geonames-lib',
     'pycountry',

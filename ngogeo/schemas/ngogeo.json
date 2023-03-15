@@ -210,6 +210,41 @@
             }
           }
         },
+        "PostalInfo": {
+          "type": "object",
+          "extends": [
+            "#/$defs/coordinates/$defs/PointCoordinates"
+          ],
+          "properties": {
+            "country_code": {
+              "type": "string"
+            },
+            "place_name": {
+              "type": "string"
+            },
+            "state_name": {
+              "type": "string"
+            },
+            "state_code": {
+              "type": "string"
+            },
+            "county_name": {
+              "type": "string"
+            },
+            "county_code": {
+              "type": "string"
+            },
+            "community_name": {
+              "type": "string"
+            },
+            "community_code": {
+              "type": "string"
+            },
+            "accuracy": {
+              "type": "number"
+            }
+          }
+        },
         "CityInfo": {
           "type": "object",
           "extends": [
@@ -264,41 +299,6 @@
             },
             "modificationdate": {
               "type": "date"
-            }
-          }
-        },
-        "PostalInfo": {
-          "type": "object",
-          "extends": [
-            "#/$defs/coordinates/$defs/PointCoordinates"
-          ],
-          "properties": {
-            "country_code": {
-              "type": "string"
-            },
-            "place_name": {
-              "type": "string"
-            },
-            "state_name": {
-              "type": "string"
-            },
-            "state_code": {
-              "type": "string"
-            },
-            "county_name": {
-              "type": "string"
-            },
-            "county_code": {
-              "type": "string"
-            },
-            "community_name": {
-              "type": "string"
-            },
-            "community_code": {
-              "type": "string"
-            },
-            "accuracy": {
-              "type": "number"
             }
           }
         },
@@ -642,10 +642,11 @@
             "#/$defs/territories/$defs/GeonamesTerritory"
           ],
           "admin_code": "{{this.admin3_code}}",
-          "aliases": {
-            "admin2": "parent"
+          "dependencies": {
+            "postals_ids": [
+              "community_code"
+            ]
           },
-          "dependencies": {},
           "properties": {
             "name": {
               "type": "string"
@@ -655,6 +656,9 @@
             },
             "postals_gdf": {
               "$ref": "#/$defs/datasets/$defs/GeoDataframe"
+            },
+            "community_code": {
+              "type": "string"
             }
           }
         },
@@ -665,12 +669,14 @@
           ],
           "admin_code": "{{this.admin2_code}}",
           "aliases": {
-            "admin1": "parent",
             "subdivisions": "admin3"
           },
           "dependencies": {
             "admin3": [
               "cities_gdf",
+              "postals_gdf"
+            ],
+            "county_code": [
               "postals_gdf"
             ]
           },
@@ -695,6 +701,9 @@
             },
             "postals_gdf": {
               "$ref": "#/$defs/datasets/$defs/GeoDataframe"
+            },
+            "county_code": {
+              "type": "string"
             }
           }
         },
@@ -705,7 +714,6 @@
           ],
           "admin_code": "{{this.admin1_code}}",
           "aliases": {
-            "country": "parent",
             "subdivisions": "admin2"
           },
           "dependencies": {
@@ -715,6 +723,9 @@
             ],
             "admin3": [
               "admin2"
+            ],
+            "state_code": [
+              "postals_gdf"
             ]
           },
           "notSerialized": [
@@ -744,6 +755,9 @@
             },
             "postals_gdf": {
               "$ref": "#/$defs/datasets/$defs/GeoDataframe"
+            },
+            "state_code": {
+              "type": "string"
             }
           }
         },
@@ -755,7 +769,6 @@
           ],
           "admin_code": "{{this.country_code}}",
           "aliases": {
-            "continent": "parent",
             "subdivisions": "admin1"
           },
           "cities_subkeys": "countrycode",
@@ -861,17 +874,21 @@
           ],
           "admin_code": "{{this.continent_code}}",
           "aliases": {
-            "countries_subkeys": "countries_gdfs.subkeys",
+            "countries_subkeys": "countries_gdf.subkeys",
             "subdivisions": "countries",
             "world": "parent"
           },
           "dependencies": {
             "cities_gdf": [
-              "world.cities_gdf",
-              "countries_gdfs"
+              "parent.cities_gdf",
+              "countries_gdf"
             ],
             "countries": [
-              "countries_gdfs"
+              "countries_gdf"
+            ],
+            "countries_gdf": [
+              "parent.countries_gdf",
+              "continent_code"
             ]
           },
           "notSerialized": [
@@ -903,7 +920,7 @@
             "cities_gdf": {
               "$ref": "#/$defs/infos/$defs/CitiesGdf"
             },
-            "countries_gdfs": {
+            "countries_gdf": {
               "$ref": "#/$defs/datasets/$defs/GeoDataframeSubset"
             },
             "countries": {
@@ -1020,11 +1037,119 @@
             }
           }
         },
+        "Location": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/SearchBox",
+            "#/$defs/coordinates/$defs/PointCoordinates",
+            "https://numengo.org/ngoschema#/$defs/metadata/$defs/Taggable"
+          ],
+          "dependencies": {
+            "bbox": [
+              "location",
+              "search_radius"
+            ],
+            "location": [
+              "longitude",
+              "latitude",
+              "crs"
+            ]
+          },
+          "notSerialized": [
+            "location",
+            "gdf"
+          ],
+          "notValidated": [
+            "location",
+            "gdf"
+          ],
+          "readOnly": [
+            "location",
+            "gdf"
+          ],
+          "properties": {
+            "location": {
+              "$ref": "#/$defs/coordinates/$defs/Point"
+            },
+            "gdf": {
+              "$ref": "#/$defs/datasets/$defs/GeoDataframe"
+            },
+            "bbox": {
+              "type": "string"
+            },
+            "search_radius": {
+              "type": "integer"
+            }
+          }
+        },
+        "Postal": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Location",
+            "#/$defs/infos/$defs/PostalInfo"
+          ],
+          "dependencies": {
+            "admin1": [
+              "country",
+              "state_code"
+            ],
+            "admin2": [
+              "admin1",
+              "county_code"
+            ],
+            "admin3": [
+              "admin2",
+              "community_code"
+            ],
+            "country": [
+              "parent",
+              "country_code"
+            ],
+            "gdf": [
+              "postal",
+              "location"
+            ]
+          },
+          "notSerialized": [
+            "postal",
+            "country",
+            "admin1",
+            "admin2",
+            "admin3"
+          ],
+          "notValidated": [
+            "postal",
+            "country",
+            "admin1",
+            "admin2",
+            "admin3"
+          ],
+          "properties": {
+            "postal": {
+              "$ref": "#/$defs/infos/$defs/PostalSeries"
+            },
+            "gdf": {
+              "$ref": "#/$defs/datasets/$defs/GeoDataframe"
+            },
+            "country": {
+              "$ref": "#/$defs/territories/$defs/Country"
+            },
+            "admin1": {
+              "$ref": "#/$defs/territories/$defs/Admin1"
+            },
+            "admin2": {
+              "$ref": "#/$defs/territories/$defs/Admin2"
+            },
+            "admin3": {
+              "$ref": "#/$defs/territories/$defs/Admin3"
+            }
+          }
+        },
         "Geoname": {
           "type": "object",
           "extends": [
-            "#/$defs/infos/$defs/Geoname",
-            "#/$defs/territories/$defs/SearchBox"
+            "#/$defs/territories/$defs/Location",
+            "#/$defs/infos/$defs/Geoname"
           ],
           "dependencies": {
             "admin1": [
@@ -1057,10 +1182,6 @@
             "gdf": [
               "location",
               "crs"
-            ],
-            "location": [
-              "longitude",
-              "latitude"
             ]
           },
           "notSerialized": [
@@ -1070,8 +1191,7 @@
             "admin1",
             "admin2",
             "admin3",
-            "timezone_details",
-            "gdf"
+            "timezone_details"
           ],
           "notValidated": [
             "parent",
@@ -1082,13 +1202,10 @@
             "admin3"
           ],
           "readOnly": [
-            "location",
             "country",
             "admin1",
             "admin2",
-            "admin3",
-            "location",
-            "gdf"
+            "admin3"
           ],
           "properties": {
             "geoname": {
@@ -1098,9 +1215,6 @@
               "$ref": "#/$defs/datasets/$defs/GeoDataframe"
             },
             "parent": true,
-            "location": {
-              "$ref": "#/$defs/coordinates/$defs/Point"
-            },
             "country": {
               "$ref": "#/$defs/territories/$defs/Country"
             },
@@ -1125,25 +1239,19 @@
             "timezone_details": true,
             "amenity": {
               "type": "object"
-            },
-            "bbox": {
-              "type": "string"
-            },
-            "radius": {
-              "type": "integer"
             }
           }
         },
         "City": {
           "type": "object",
           "extends": [
-            "#/$defs/infos/$defs/CityInfo",
-            "#/$defs/infos/$defs/PostalInfo",
-            "#/$defs/territories/$defs/Geoname"
+            "#/$defs/territories/$defs/Geoname",
+            "#/$defs/territories/$defs/Postal",
+            "#/$defs/infos/$defs/CityInfo"
           ],
           "country_code": "{{this.countrycode}}",
           "dependencies": {
-            "postalInfo": [
+            "postal": [
               "admin3",
               "name"
             ]
@@ -1155,7 +1263,7 @@
             "geoname": {
               "$ref": "#/$defs/infos/$defs/CitySeries"
             },
-            "postalInfo": {
+            "postal": {
               "$ref": "#/$defs/infos/$defs/PostalSeries"
             },
             "gdf": {
