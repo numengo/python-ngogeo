@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os, os.path
 import geoip2.database
+import ipaddress
 
 from ngoschema.loaders import static_module_loader
 
@@ -11,7 +12,7 @@ geolite2_folder = static_module_loader.subfolder('ngogeo').joinpath(geo_settings
 
 
 class IpUtilsFile:
-    _version = '20211130'
+    _version = geo_settings.GEOLITE2_VERSION
     _db_fn = None
 
     def __init__(self):
@@ -34,6 +35,3 @@ class IpUtilsCity(IpUtilsCountry):
 
     def city(self, ip):
         return self._reader.city(ip)
-
-
-ip_country = IpUtilsCountry()

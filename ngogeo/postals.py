@@ -70,7 +70,9 @@ def load_postals_gdf(filename, unique=True, crs=None):
         df_unique = df_unique.reset_index()[DATA_FIELDS]
         df_unique.to_csv(gcti, index=None)
 
-    df = pd.read_csv(gcti if unique else gct, dtype={"postal_code": str, "longitude": float, "latitude": float})
+    df = pd.read_csv(gcti if unique else gct, dtype={"state_code": str, "county_code": str,
+                                                     "community_code": str, "postal_code": str,
+                                                     "longitude": float, "latitude": float})
     if unique:
         df = df.set_index('postal_code')
     gdf = gpd.GeoDataFrame(
