@@ -125,7 +125,8 @@ def search_relations_radius(point, radius, point_crs=None, crs=None, **kwargs):
 
 
 class Territory:
-    code: str
+    admin_code: str
+    admin_level: int
     name : str
     infos : pd.Series
     cities : gpd.GeoDataFrame
@@ -134,6 +135,7 @@ class Territory:
     subdivisions: OrderedDict
     box: shapely.geometry.MultiPoint
     crs = geo_settings.DEFAULT_CRS
+    parent = None
 
     def __init__(self, name, cities=None, postals=None, geonames=None, crs=None, parent=None, bound_from_cities=True):
         from shapely.geometry import Polygon
@@ -224,13 +226,24 @@ class Territory:
                         return l
             return self
 
+    @property
+    def country(self):
+        c = self
+        while c:
+            if isinstance(c, Country):
+                return c
+            c = c.parent
+
+    def get_osm_id(self):
+        raise
+
 
 class Admin3(Territory):
-    code = 'admin3'
+    admin_code = 'admin3'
 
 
 class Admin2(Admin3):
-    code = 'admin2'
+    admin_code = 'admin2'
     admin3: OrderedDict
 
     def __init__(self, *args, **kwargs):
@@ -239,7 +252,7 @@ class Admin2(Admin3):
 
 
 class Admin1(Admin2):
-    code = 'admin1'
+    admin_code = 'admin1'
     admin2: OrderedDict
 
     def __init__(self, *args, **kwargs):
@@ -248,7 +261,7 @@ class Admin1(Admin2):
 
 
 class Country(Admin1):
-    code = 'countrycode'
+    admin_code = 'countrycode'
     admin1: OrderedDict
 
     def __init__(self, name, infos, **kwargs):
@@ -278,7 +291,7 @@ class Country(Admin1):
 
 
 class Continent(Territory):
-    code = 'continent'
+    admin_code = 'continent'
     countries: OrderedDict
     countries_gdf: gpd.GeoDataFrame
     crs = geo_settings.WSG84_CRS
@@ -287,7 +300,7 @@ class Continent(Territory):
         super().__init__(*args, bound_from_cities=False, **kwargs)
         self.countries = OrderedDict()
         self.countries_gdf = countries_gdf
-        if countries_gdf.geometry.any():
+        if hasattr(countries_gdf, 'geometry') and countries_gdf.geometry.any():
             # geometry is defined. we are normally served with a boundary geometry also EPSG:4326
             self.bnd = gpd.GeoSeries(countries_gdf['bnd'])
             self.box = self.bnd.unary_union.envelope
@@ -305,16 +318,17 @@ class Continent(Territory):
             if country.contains(point, point_crs):
                 return country.locate(point, point_crs)
         point = self.make_point_to_crs(point, point_crs)
-        for cc, bnd in self.bnd.iteritems():
-            if bnd.contains(point):
-                return cc
+        if hasattr(self, 'bnd'):
+            for cc, bnd in self.bnd.iteritems():
+                if bnd.contains(point):
+                    return cc
 
 
 class World(Continent):
-    code = 'world'
+    admin_code = 'world'
     continents: OrderedDict
 
-    def __init__(self, city_file='cities5000', with_shapes=True, crs=None, **kwargs):
+    def __init__(self, city_file='cities5000', with_shapes=False, crs=None, **kwargs):
         import numpy as np
         cities = load_cities(city_file, crs=crs)
         countries_gdf = load_countries(with_shapes=with_shapes)

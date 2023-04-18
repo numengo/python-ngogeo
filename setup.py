@@ -107,14 +107,15 @@ setup(
     version=version,
     license=license,
     description=description,
-    long_description='%s\n%s' % (
-        re.compile('^.. start-badges.*^.. end-badges', re.M | re.S).sub('', read('README.rst')),
-        re.sub(':[a-z]+:`~?(.*?)`', r'``\1``', read('CHANGELOG.rst'))
-    ),
+    long_description='%s\n%s' %
+    (re.compile('^.. skip-next.*', re.M | re.S).sub('',
+     re.compile('^.. start-badges.*^.. end-badges', re.M | re.S).sub('',
+     read('README.rst'))),
+     re.sub(':[a-z]+:`~?(.*?)`', r'``\1``', read('CHANGELOG.rst'))),
     author=author,
     author_email=author_email,
     url=url,
-    packages=[package],
+    packages=find_packages(exclude='tests'),
     package_data=get_package_data(package),
     include_package_data=True,
     zip_safe=False,

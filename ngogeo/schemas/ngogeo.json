@@ -1,0 +1,546 @@
+{
+  "$id": "https://numengo.org/ngogeo#",
+  "type": "object",
+  "$comment": "automatically generated for ngogeo",
+  "$defs": {
+    "Coordinates": {
+      "type": "object",
+      "properties": {
+        "longitude": {
+          "type": "integer"
+        },
+        "latitude": {
+          "type": "integer"
+        }
+      }
+    },
+    "Point": {
+      "type": "object",
+      "extends": [
+        "#/$defs/Coordinates"
+      ]
+    },
+    "Language": {
+      "type": "object",
+      "properties": {
+        "alpha_3": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "inverted_name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      }
+    },
+    "Currency": {
+      "type": "object",
+      "properties": {
+        "alpha3": {
+          "type": "string"
+        },
+        "alpha2": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "numeric": {
+          "type": "string"
+        }
+      }
+    },
+    "territories": {
+      "type": "object",
+      "$defs": {
+        "CRS": {
+          "type": "object",
+          "enum": [
+            "EPSG:2154",
+            "EPSG:4326"
+          ]
+        },
+        "Territory": {
+          "type": "object",
+          "extends": [
+            "https://numengo.org/ngoschema#/$defs/instances/$defs/Instance"
+          ],
+          "properties": {
+            "admin_code": {
+              "type": "string"
+            },
+            "admin_level": {
+              "type": "integer"
+            },
+            "infos": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Info"
+              }
+            },
+            "cities": {
+              "type": "array"
+            },
+            "postals": {
+              "type": "array"
+            },
+            "geonames": {
+              "type": "array"
+            },
+            "subdivisions": {
+              "type": "array"
+            },
+            "box": {
+              "type": "string"
+            },
+            "crs": {
+              "$ref": "#/$defs/territories/$defs/CRS"
+            }
+          }
+        },
+        "CityInfo": {
+          "type": "object",
+          "extends": [
+            "https://numengo.org/ngoschema#/$defs/instances/$defs/Series"
+          ],
+          "properties": {
+            "geonameid": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "asciiname": {
+              "type": "string"
+            },
+            "alternatenames": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "string"
+            },
+            "longitude": {
+              "type": "string"
+            },
+            "featureclass": {
+              "type": "string"
+            },
+            "featurecode": {
+              "type": "string"
+            },
+            "countrycode": {
+              "type": "string"
+            },
+            "countrycode2": {
+              "type": "string"
+            },
+            "admin1code": {
+              "type": "string"
+            },
+            "admin2code": {
+              "type": "string"
+            },
+            "admin3code": {
+              "type": "string"
+            },
+            "admin4code": {
+              "type": "string"
+            },
+            "population": {
+              "type": "string"
+            },
+            "elevation": {
+              "type": "string"
+            },
+            "dem": {
+              "type": "string"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "modificationdate": {
+              "type": "string"
+            }
+          }
+        },
+        "Postal": {
+          "type": "object",
+          "properties": {
+            "country_code": {
+              "type": "string"
+            },
+            "place_name": {
+              "type": "string"
+            },
+            "state_name": {
+              "type": "string"
+            },
+            "state_code": {
+              "type": "string"
+            },
+            "county_name": {
+              "type": "string"
+            },
+            "county_code": {
+              "type": "string"
+            },
+            "community_name": {
+              "type": "string"
+            },
+            "community_code": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "string"
+            },
+            "longitude": {
+              "type": "integer"
+            },
+            "accuracy": {
+              "type": "integer"
+            },
+            "geometry": {
+              "type": "string"
+            }
+          }
+        },
+        "GeoName": {
+          "type": "object",
+          "extends": [
+            "https://numengo.org/ngoschema#/$defs/dataframes/$defs/Series"
+          ],
+          "properties": {
+            "geonameid": {
+              "type": "string",
+              "description": "integer id of record in geonames database"
+            },
+            "name": {
+              "type": "string",
+              "description": "name of geographical point (utf8) varchar(200)"
+            },
+            "asciiname": {
+              "type": "string",
+              "description": "name of geographical point in plain ascii characters, varchar(200)"
+            },
+            "alternatenames": {
+              "type": "string",
+              "description": "alternatenames, comma separated, ascii names automatically transliterated, convenience attribute from alternatename table, varchar(10000)"
+            },
+            "latitude": {
+              "type": "string",
+              "description": "latitude in decimal degrees (wgs84)"
+            },
+            "longitude": {
+              "type": "string",
+              "description": "longitude in decimal degrees (wgs84)"
+            },
+            "feature_class": {
+              "type": "string",
+              "description": "see http://www.geonames.org/export/codes.html, char(1)",
+              "enum": [
+                "A",
+                "H",
+                "L",
+                "P",
+                "R",
+                "S",
+                "T",
+                "U",
+                "V"
+              ]
+            },
+            "feature_code": {
+              "type": "string",
+              "description": "see http://www.geonames.org/export/codes.html, varchar(10)"
+            },
+            "country_code": {
+              "type": "string",
+              "description": "ISO-3166 2-letter country code, 2 characters"
+            },
+            "cc2": {
+              "type": "string",
+              "description": "alternate country codes, comma separated, ISO-3166 2-letter country code, 200 characters"
+            },
+            "admin1_code": {
+              "type": "string",
+              "description": "fipscode (subject to change to iso code), see exceptions below, see file admin1Codes.txt for display names of this code; varchar(20)"
+            },
+            "admin2_code": {
+              "type": "string",
+              "description": "code for the second administrative division, a county in the US, see file admin2Codes.txt; varchar(80)"
+            },
+            "admin3_code": {
+              "type": "string",
+              "description": "code for third level administrative division, varchar(20)"
+            },
+            "admin4_code": {
+              "type": "string",
+              "description": "code for fourth level administrative division, varchar(20)"
+            },
+            "population": {
+              "type": "integer",
+              "description": "bigint (8 byte int)"
+            },
+            "elevation": {
+              "type": "integer",
+              "description": "in meters, integer"
+            },
+            "dem": {
+              "type": "integer",
+              "description": "digital elevation model, srtm3 or gtopo30, average elevation of 3''x3'' (ca 90mx90m) or 30''x30'' (ca 900mx900m) area in meters, integer. srtm processed by cgiar/ciat."
+            },
+            "timezone": {
+              "type": "string",
+              "description": "the iana timezone id (see file timeZone.txt) varchar(40)"
+            },
+            "modification date": {
+              "type": "datetime",
+              "description": "date of last modification in yyyy-MM-dd format"
+            }
+          }
+        },
+        "GeoNames": {
+          "type": "object",
+          "extends": [
+            "https://numengo.org/ngoschema#/$defs/dataframes/$defs/Dataframe",
+            "#/$defs/territories/$defs/GeoName"
+          ]
+        },
+        "Admin3": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Territory"
+          ],
+          "admin_code": "admin3"
+        },
+        "Admin2": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Admin3"
+          ],
+          "admin_code": "admin2",
+          "properties": {
+            "subdivisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Admin3"
+              }
+            }
+          }
+        },
+        "Admin1": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Admin2"
+          ],
+          "admin_code": "admin1",
+          "properties": {
+            "subdivisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Admin2"
+              }
+            }
+          }
+        },
+        "Country": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Admin1"
+          ],
+          "admin_code": "countrycode",
+          "properties": {
+            "infos": {
+              "$ref": "#/$defs/territories/$defs/CountryInfo"
+            },
+            "subdivisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Admin1"
+              }
+            },
+            "currency": {
+              "$ref": "#/$defs/territories/$defs/Currency"
+            },
+            "currency_fmt": {
+              "type": "string"
+            },
+            "languages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Language"
+              }
+            },
+            "language_db": {
+              "type": "string"
+            },
+            "capital": {
+              "$ref": "#/$defs/territories/$defs/City"
+            }
+          }
+        },
+        "CountryInfo": {
+          "type": "object",
+          "extends": [
+            "https://numengo.org/ngoschema#/$defs/dataframes/$defs/Series"
+          ],
+          "properties": {
+            "ISO": {
+              "type": "string"
+            },
+            "ISO3": {
+              "type": "string"
+            },
+            "ISO-Numeric": {
+              "type": "string"
+            },
+            "fips": {
+              "type": "string"
+            },
+            "Country": {
+              "type": "string"
+            },
+            "Capital": {
+              "type": "string"
+            },
+            "Area(in sq km)": {
+              "type": "string"
+            },
+            "Population": {
+              "type": "string"
+            },
+            "Continent": {
+              "type": "string"
+            },
+            "tld": {
+              "type": "string"
+            },
+            "CurrencyCode": {
+              "type": "string"
+            },
+            "CurrencyName": {
+              "type": "string"
+            },
+            "Phone": {
+              "type": "string"
+            },
+            "Postal": {
+              "type": "string"
+            },
+            "Code": {
+              "type": "string"
+            },
+            "Format": {
+              "type": "string"
+            },
+            "Regex": {
+              "type": "string"
+            },
+            "Languages": {
+              "type": "array",
+              "description": "The column 'languages' lists the languages spoken in a country ordered by the number of speakers. The language code is a 'locale' where any two-letter primary-tag is an ISO-639 language abbreviation and any two-letter initial subtag is an ISO-3166 country code."
+            },
+            "geonameid": {
+              "type": "string"
+            },
+            "neighbours": {
+              "type": "string"
+            },
+            "EquivalentFipsCode": {
+              "type": "integer"
+            }
+          }
+        },
+        "Continent": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Territory"
+          ],
+          "admin_code": "continent",
+          "primaryKeys": [
+            "continent_code"
+          ],
+          "properties": {
+            "continent_code": {
+              "type": "string",
+              "enum": [
+                "AF",
+                "AS",
+                "EU",
+                "NA",
+                "OC",
+                "SA",
+                "AN"
+              ]
+            },
+            "geonameId": {
+              "type": "string"
+            },
+            "countries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/Country"
+              }
+            },
+            "gdf": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/territories/$defs/CountryInfo"
+              }
+            },
+            "crs": {
+              "type": "string"
+            }
+          }
+        },
+        "World": {
+          "type": "object",
+          "extends": [
+            "#/$defs/territories/$defs/Continent"
+          ],
+          "admin_code": "world",
+          "properties": {
+            "continents": {
+              "type": "array",
+              "AF": {
+                "name": "Africa",
+                "geonameId": 6255146
+              },
+              "AN": {
+                "name": "Antarctica",
+                "geonameId": 6255152
+              },
+              "AS": {
+                "name": "Asia",
+                "geonameId": 6255147
+              },
+              "EU": {
+                "name": "Europe",
+                "geonameId": 6255148
+              },
+              "NA": {
+                "name": "North America",
+                "geonameId": 6255149
+              },
+              "OC": {
+                "name": "Oceania",
+                "geonameId": 6255151
+              },
+              "SA": {
+                "name": "South America",
+                "geonameId": 6255150
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

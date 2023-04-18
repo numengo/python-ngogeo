@@ -89,6 +89,8 @@ output/*/index.html
 # Sphinx
 docs/_build
 
+._*
+.~lock.*
 .DS_Store
 *~
 .*.sw[po]

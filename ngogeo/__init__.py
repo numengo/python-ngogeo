@@ -7,7 +7,7 @@ __email__ = 'roman@numengo.com'
 __version__ = '0.1.0'
 
 from simple_settings import LazySettings
-settings = LazySettings('ngogeo.config.settings', 'NGOGEO_.environ')
+settings = LazySettings('ngogeo.config.settings')
 
 # PROTECTED REGION ID(ngogeo.init) ENABLED START
 from ngoschema.loaders import register_module
